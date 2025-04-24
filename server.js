@@ -2,7 +2,7 @@ const express = require("express");
 const bodyParser = require("body-parser");
 const bcrypt = require("bcrypt");
 const path = require("path");
-const { Pool } = require("pg");
+const mysql = require("mysql2/promise");
 const app = express();
 const PORT = process.env.PORT || 3000;
 
@@ -117,20 +117,18 @@ app.post("/api/moodle-login", async (req, res) => {
 
   try {
     // Get connection from pool
-    const connection = await pool.connect();
+    const connection = await pool.getConnection();
 
     try {
       // Query to get user from Moodle database
       // Note: Moodle typically stores passwords using various hash methods including bcrypt
       // This SQL query gets the necessary user data for authentication
-      const result = await pool.query(
+      const [rows] = await connection.query(
         `SELECT id, username, password, firstname, lastname 
          FROM mdl_user 
-         WHERE username = $1 AND deleted = 0 AND suspended = 0`,
+         WHERE username = ? AND deleted = 0 AND suspended = 0`,
         [username]
       );
-
-      const rows = result.rows;
 
       if (rows.length === 0) {
         return res.status(401).json({
