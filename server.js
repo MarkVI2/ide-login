@@ -72,8 +72,17 @@ const dbConfig = {
 // Create connection pool
 let pool;
 try {
-  pool = new Pool(dbConfig);
-  console.log("PostgreSQL database pool created successfully");
+  pool = mysql.createPool({
+    host: dbConfig.host,
+    port: dbConfig.port,
+    user: dbConfig.user,
+    password: dbConfig.password,
+    database: dbConfig.database,
+    waitForConnections: true,
+    connectionLimit: 10,
+    queueLimit: 0,
+  });
+  console.log("MySQL/MariaDB database pool created successfully");
 } catch (error) {
   console.error("Failed to create database pool:", error);
 }
@@ -118,7 +127,6 @@ app.post("/api/moodle-login", async (req, res) => {
   try {
     // Get connection from pool
     const connection = await pool.getConnection();
-
     try {
       // Query to get user from Moodle database
       // Note: Moodle typically stores passwords using various hash methods including bcrypt
