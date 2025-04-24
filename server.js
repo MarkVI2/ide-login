@@ -14,19 +14,24 @@ app.use((req, res, next) => {
 
 // CORS middleware - Add before other middleware
 app.use((req, res, next) => {
-  // Allow requests from any origin
-  res.header("Access-Control-Allow-Origin", "*");
+  // Be more specific with allowed origins for security
+  const allowedOrigins = ["https://code.euclid-mu.in", "http://localhost:3000"];
+  const origin = req.headers.origin;
 
-  // Allow specific methods
+  if (allowedOrigins.includes(origin)) {
+    res.header("Access-Control-Allow-Origin", origin);
+  }
+
+  // Allow credentials
+  res.header("Access-Control-Allow-Credentials", "true");
+
+  // Rest of your CORS setup
   res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
-
-  // Allow specific headers
   res.header(
     "Access-Control-Allow-Headers",
     "Origin, X-Requested-With, Content-Type, Accept, Authorization"
   );
 
-  // Handle preflight requests
   if (req.method === "OPTIONS") {
     return res.status(200).end();
   }
@@ -87,9 +92,15 @@ try {
   console.error("Failed to create database pool:", error);
 }
 
-// API endpoint for Moodle login
+// Enhanced API endpoint with better logging
 app.post("/api/moodle-login", async (req, res) => {
-  console.log("Login attempt received:", req.body);
+  console.log("Login attempt received:", {
+    headers: req.headers,
+    body: req.body,
+    url: req.url,
+    method: req.method,
+    ip: req.ip,
+  });
 
   const { username, password } = req.body;
 
@@ -221,9 +232,9 @@ app.get("/", (req, res) => {
 });
 
 // Start server
-app.listen(PORT, () => {
+app.listen(PORT, "0.0.0.0", () => {
   console.log(`Server running on port ${PORT}`);
-  console.log(`Visit http://localhost:${PORT} in your browser`);
+  console.log(`Bound to all network interfaces`);
 });
 
 // Export app for testing
