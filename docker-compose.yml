@@ -1,40 +1,24 @@
+version: "3.8"
+
 services:
-  # Your Node.js application
   app:
     build:
       context: .
       dockerfile: Dockerfile
     container_name: judge0-ide-app
     ports:
-      - "3000:3000"
+      - "${APP_PORT:-3000}:3000"
     environment:
       - NODE_ENV=production
-      - DB_HOST=postgres-moodle # This should be your Moodle DB container name
-      - DB_PORT=5432
-      - DB_USER=moodle_user # Replace with your actual DB username
-      - DB_PASSWORD=moodle_password # Replace with your actual DB password
-      - DB_NAME=moodle
-    networks:
-      - moodle-network
-    depends_on:
-      - postgres-moodle
-    restart: unless-stopped
-
-  # This references your existing PostgreSQL container
-  # If your PostgreSQL is already running in another docker-compose setup,
-  # you can use the 'external_links' approach instead
-  postgres-moodle:
-    image: postgres:14 # Make sure this matches your existing Postgres version
-    container_name: postgres-moodle # Should match your existing container name
-    # Comment these out if your PostgreSQL container is already running
-    environment:
-      POSTGRES_USER: moodle_user
-      POSTGRES_PASSWORD: moodle_password
-      POSTGRES_DB: moodle
-    ports:
-      - "5432:5432"
+      - DB_HOST=${DB_HOST:-localhost}
+      - DB_PORT=${DB_PORT:-3306}
+      - DB_USER=${DB_USER:-moodle_user}
+      - DB_PASSWORD=${DB_PASSWORD:-moodle_password}
+      - DB_NAME=${DB_NAME:-moodle}
+      - DB_SOCKET=${DB_SOCKET:-/var/run/mysqld/mysqld.sock}
+      - DB_DEBUG=${DB_DEBUG:-false}
     volumes:
-      - postgres-data:/var/lib/postgresql/data
+      - ${MOODLE_DB_MOUNT:-/mnt/moodle-db}:/moodle-db:ro
     networks:
       - moodle-network
     restart: unless-stopped
@@ -42,6 +26,3 @@ services:
 networks:
   moodle-network:
     driver: bridge
-
-volumes:
-  postgres-data:

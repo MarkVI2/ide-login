@@ -65,16 +65,18 @@ const ADMIN_CREDENTIALS = {
   lastname: "User",
 };
 
-// Database configuration - Update with your Moodle PostgreSQL database details
+// Database configuration for a local MySQL/MariaDB file
 const dbConfig = {
   host: process.env.DB_HOST || "localhost",
-  port: process.env.DB_PORT || 5432, // PostgreSQL default port
+  port: process.env.DB_PORT || 3306,
   user: process.env.DB_USER || "moodle_user",
   password: process.env.DB_PASSWORD || "moodle_password",
   database: process.env.DB_NAME || "moodle",
+  socketPath: process.env.DB_SOCKET || "/var/run/mysqld/mysqld.sock", // For local file access
+  connectTimeout: 60000, // Increase timeout for better reliability
 };
 
-// Create connection pool
+// Create connection pool with enhanced error handling
 let pool;
 try {
   pool = mysql.createPool({
@@ -83,10 +85,28 @@ try {
     user: dbConfig.user,
     password: dbConfig.password,
     database: dbConfig.database,
+    socketPath: dbConfig.socketPath,
     waitForConnections: true,
     connectionLimit: 10,
     queueLimit: 0,
+    connectTimeout: dbConfig.connectTimeout,
+    debug:
+      process.env.DB_DEBUG === "true"
+        ? ["ComQueryPacket", "RowDataPacket"]
+        : false,
   });
+
+  // Test connection immediately
+  pool
+    .getConnection()
+    .then((connection) => {
+      console.log("MySQL/MariaDB database connection test successful");
+      connection.release();
+    })
+    .catch((err) => {
+      console.error("Database connection test failed:", err);
+    });
+
   console.log("MySQL/MariaDB database pool created successfully");
 } catch (error) {
   console.error("Failed to create database pool:", error);
@@ -94,13 +114,7 @@ try {
 
 // Enhanced API endpoint with better logging
 app.post("/api/moodle-login", async (req, res) => {
-  console.log("Login attempt received:", {
-    headers: req.headers,
-    body: req.body,
-    url: req.url,
-    method: req.method,
-    ip: req.ip,
-  });
+  console.log("Login attempt received:", { username: req.body.username });
 
   const { username, password } = req.body;
 
@@ -111,7 +125,7 @@ app.post("/api/moodle-login", async (req, res) => {
     });
   }
 
-  // Check for admin credentials first
+  // Admin check remains the same
   if (
     username === ADMIN_CREDENTIALS.username &&
     password === ADMIN_CREDENTIALS.password
@@ -126,7 +140,7 @@ app.post("/api/moodle-login", async (req, res) => {
     });
   }
 
-  // If database connection is not available, return error
+  // Database check
   if (!pool) {
     console.error("Database connection not available");
     return res.status(500).json({
@@ -136,30 +150,31 @@ app.post("/api/moodle-login", async (req, res) => {
   }
 
   try {
-    // Get connection from pool
     const connection = await pool.getConnection();
     try {
-      // Query to get user from Moodle database
-      // Note: Moodle typically stores passwords using various hash methods including bcrypt
-      // This SQL query gets the necessary user data for authentication
-      const [rows] = await connection.query(
-        `SELECT id, username, password, firstname, lastname 
-         FROM mdl_user 
+      // Get user from database
+      const [users] = await connection.query(
+        `SELECT id, username, password, firstname, lastname, email
+         FROM mdl_user
          WHERE username = ? AND deleted = 0 AND suspended = 0`,
         [username]
       );
 
-      if (rows.length === 0) {
+      if (users.length === 0) {
         return res.status(401).json({
           success: false,
           message: "User not found",
         });
       }
 
-      const user = rows[0];
+      const user = users[0];
 
-      // Verify password - Moodle uses different hashing methods
-      // This is a simplified version - might need adjustment based on your Moodle configuration
+      // Log the password format to help debugging
+      console.log(
+        `Password format for ${username}: ${user.password.substring(0, 8)}...`
+      );
+
+      // Verify password using your existing function
       const isValidPassword = await verifyMoodlePassword(
         password,
         user.password
@@ -179,10 +194,10 @@ app.post("/api/moodle-login", async (req, res) => {
         userId: user.id,
         username: user.username,
         fullName: `${user.firstname} ${user.lastname}`,
+        email: user.email,
         isAdmin: false,
       });
     } finally {
-      // Release connection back to pool
       connection.release();
     }
   } catch (error) {
@@ -190,6 +205,7 @@ app.post("/api/moodle-login", async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "Server error during authentication",
+      error: error.toString(),
     });
   }
 });
@@ -225,6 +241,47 @@ async function verifyMoodlePassword(plainPassword, hashedPassword) {
     return md5Hash === hashedPassword;
   }
 }
+
+// Add this endpoint to test database connection
+app.get("/api/db-info", async (req, res) => {
+  try {
+    // Get connection from pool
+    const connection = await pool.getConnection();
+    try {
+      // Get version and file path info
+      const [versionRows] = await connection.query(
+        "SELECT VERSION() as version"
+      );
+      const [variablesRows] = await connection.query(
+        "SHOW VARIABLES LIKE 'datadir'"
+      );
+      const [tablesRows] = await connection.query("SHOW TABLES");
+
+      // Return information about the database
+      return res.json({
+        success: true,
+        version: versionRows[0].version,
+        dataDirectory: variablesRows[0]?.Value,
+        tables: tablesRows.map((row) => Object.values(row)[0]),
+        connectionConfig: {
+          host: dbConfig.host,
+          port: dbConfig.port,
+          database: dbConfig.database,
+          socketPath: dbConfig.socketPath || "Not configured",
+        },
+      });
+    } finally {
+      connection.release();
+    }
+  } catch (error) {
+    console.error("Database error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Server error querying database information",
+      error: error.toString(),
+    });
+  }
+});
 
 // Redirect to login page if not authenticated
 app.get("/", (req, res) => {
