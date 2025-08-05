@@ -17,6 +17,12 @@ services:
       - DB_NAME=${DB_NAME:-moodle}
       - DB_SOCKET=${DB_SOCKET:-/var/run/mysqld/mysqld.sock}
       - DB_DEBUG=${DB_DEBUG:-false}
+      - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-muadmin2025}
+      - ADMIN_USER_ID=${ADMIN_USER_ID:-admin-1}
+      - ADMIN_FIRSTNAME=${ADMIN_FIRSTNAME:-Admin}
+      - ADMIN_LASTNAME=${ADMIN_LASTNAME:-User}
+      - DEBUG_TOKEN=${DEBUG_TOKEN:-debug123}
     volumes:
       - ${MOODLE_DB_MOUNT:-/mnt/moodle-db}:/moodle-db:ro
     networks:

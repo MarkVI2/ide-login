@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Judge0 IDE - Moodle Login</title>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      body {
+        font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 20px;
+      }
+
+      .login-container {
+        background: white;
+        padding: 40px;
+        border-radius: 12px;
+        box-shadow: 0 15px 35px rgba(0, 0, 0, 0.1);
+        width: 100%;
+        max-width: 400px;
+      }
+
+      .login-header {
+        text-align: center;
+        margin-bottom: 30px;
+      }
+
+      .login-header h1 {
+        color: #333;
+        font-size: 28px;
+        margin-bottom: 8px;
+      }
+
+      .login-header p {
+        color: #666;
+        font-size: 14px;
+      }
+
+      .form-group {
+        margin-bottom: 20px;
+      }
+
+      .form-group label {
+        display: block;
+        margin-bottom: 6px;
+        color: #333;
+        font-weight: 500;
+      }
+
+      .form-group input {
+        width: 100%;
+        padding: 12px;
+        border: 2px solid #e1e5e9;
+        border-radius: 6px;
+        font-size: 16px;
+        transition: border-color 0.3s ease;
+      }
+
+      .form-group input:focus {
+        outline: none;
+        border-color: #667eea;
+      }
+
+      .login-btn {
+        width: 100%;
+        padding: 12px;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        border: none;
+        border-radius: 6px;
+        font-size: 16px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: opacity 0.3s ease;
+      }
+
+      .login-btn:hover {
+        opacity: 0.9;
+      }
+
+      .login-btn:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+      }
+
+      .error-message {
+        background: #fee;
+        color: #c33;
+        padding: 12px;
+        border-radius: 6px;
+        margin: 15px 0;
+        border: 1px solid #fcc;
+        display: none;
+      }
+
+      .success-message {
+        background: #efe;
+        color: #363;
+        padding: 12px;
+        border-radius: 6px;
+        margin: 15px 0;
+        border: 1px solid #cfc;
+        display: none;
+      }
+
+      .loading {
+        display: none;
+        text-align: center;
+        margin: 15px 0;
+        color: #666;
+      }
+
+      .debug-info {
+        background: #f8f9fa;
+        border: 1px solid #dee2e6;
+        border-radius: 6px;
+        padding: 15px;
+        margin: 20px 0;
+        font-size: 12px;
+        font-family: monospace;
+        color: #495057;
+        display: none;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="login-container">
+      <div class="login-header">
+        <h1>Judge0 IDE</h1>
+        <p>Login with your Moodle credentials</p>
+      </div>
+
+      <form id="loginForm">
+        <div class="form-group">
+          <label for="username">Username</label>
+          <input type="text" id="username" name="username" required />
+        </div>
+
+        <div class="form-group">
+          <label for="password">Password</label>
+          <input type="password" id="password" name="password" required />
+        </div>
+
+        <button type="submit" class="login-btn" id="loginBtn">Login</button>
+      </form>
+
+      <div class="loading" id="loading">Authenticating...</div>
+
+      <div class="error-message" id="errorMessage"></div>
+      <div class="success-message" id="successMessage"></div>
+
+      <div class="debug-info" id="debugInfo"></div>
+
+      <div
+        style="
+          text-align: center;
+          margin-top: 20px;
+          font-size: 12px;
+          color: #666;
+        "
+      >
+        <p>Having trouble? Contact your administrator.</p>
+        <p style="margin-top: 8px">
+          <a href="/api/test" target="_blank" style="color: #667eea"
+            >Test API</a
+          >
+          |
+          <a href="/api/health" target="_blank" style="color: #667eea"
+            >Health Check</a
+          >
+        </p>
+      </div>
+    </div>
+
+    <script>
+      document
+        .getElementById("loginForm")
+        .addEventListener("submit", async function (e) {
+          e.preventDefault();
+
+          const username = document.getElementById("username").value;
+          const password = document.getElementById("password").value;
+          const loginBtn = document.getElementById("loginBtn");
+          const loading = document.getElementById("loading");
+          const errorMessage = document.getElementById("errorMessage");
+          const successMessage = document.getElementById("successMessage");
+          const debugInfo = document.getElementById("debugInfo");
+
+          // Reset messages
+          errorMessage.style.display = "none";
+          successMessage.style.display = "none";
+          debugInfo.style.display = "none";
+
+          // Show loading
+          loginBtn.disabled = true;
+          loading.style.display = "block";
+
+          try {
+            const response = await fetch("/api/moodle-login", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({ username, password }),
+              credentials: "include",
+            });
+
+            const data = await response.json();
+
+            if (data.success) {
+              successMessage.textContent = `Welcome, ${data.fullName}! Redirecting to IDE...`;
+              successMessage.style.display = "block";
+
+              // Show user info in debug section
+              debugInfo.innerHTML = `
+                        <strong>Login Successful:</strong><br>
+                        User ID: ${data.userId}<br>
+                        Username: ${data.username}<br>
+                        Full Name: ${data.fullName}<br>
+                        Email: ${data.email}<br>
+                        Admin: ${data.isAdmin ? "Yes" : "No"}<br>
+                        Login Time: ${data.loginTime}
+                    `;
+              debugInfo.style.display = "block";
+
+              // In a real implementation, you would redirect to the IDE
+              setTimeout(() => {
+                window.location.href = "https://code.euclid-mu.in";
+              }, 2000);
+            } else {
+              errorMessage.textContent = data.message || "Login failed";
+              errorMessage.style.display = "block";
+
+              // Show debug info for failed attempts
+              debugInfo.innerHTML = `
+                        <strong>Login Failed:</strong><br>
+                        Error: ${data.error || "Unknown"}<br>
+                        Message: ${data.message}<br>
+                        Status: ${response.status}
+                    `;
+              debugInfo.style.display = "block";
+            }
+          } catch (error) {
+            errorMessage.textContent = "Network error. Please try again.";
+            errorMessage.style.display = "block";
+
+            debugInfo.innerHTML = `
+                    <strong>Network Error:</strong><br>
+                    ${error.message}
+                `;
+            debugInfo.style.display = "block";
+          }
+
+          // Hide loading
+          loginBtn.disabled = false;
+          loading.style.display = "none";
+        });
+
+      // Pre-fill admin credentials for testing (remove in production)
+      if (window.location.hostname === "localhost") {
+        document.getElementById("username").value = "admin";
+        document.getElementById("password").value = "muadmin2025";
+      }
+    </script>
+  </body>
+</html>

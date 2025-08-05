@@ -3,36 +3,58 @@ const bodyParser = require("body-parser");
 const bcrypt = require("bcrypt");
 const path = require("path");
 const mysql = require("mysql2/promise");
+const crypto = require("crypto");
+const apacheMd5 = require("apache-md5");
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 // Enhanced logging middleware
 app.use((req, res, next) => {
-  console.log(`${new Date().toISOString()} - ${req.method} ${req.url}`);
+  const timestamp = new Date().toISOString();
+  console.log(`${timestamp} - ${req.method} ${req.url}`);
+
+  // Log request body for debugging (but sanitize sensitive data)
+  if (req.method === "POST" && req.url.includes("/api/moodle-login")) {
+    const sanitizedBody = { ...req.body };
+    if (sanitizedBody.password) {
+      sanitizedBody.password = "[REDACTED]";
+    }
+    console.log(`${timestamp} - Request body:`, sanitizedBody);
+  }
+
   next();
 });
 
-// CORS middleware - Add before other middleware
+// CORS middleware - Enhanced for production cross-origin support
 app.use((req, res, next) => {
-  // Be more specific with allowed origins for security
-  const allowedOrigins = ["https://code.euclid-mu.in", "http://localhost:3000"];
+  const allowedOrigins = [
+    "https://code.euclid-mu.in",
+    "https://ide-login.euclid-mu.in",
+    "http://localhost:3000",
+    "http://localhost:8080",
+  ];
+
   const origin = req.headers.origin;
 
-  if (allowedOrigins.includes(origin)) {
-    res.header("Access-Control-Allow-Origin", origin);
+  // Allow requests from allowed origins or same-origin requests
+  if (allowedOrigins.includes(origin) || !origin) {
+    res.header("Access-Control-Allow-Origin", origin || "*");
   }
 
-  // Allow credentials
+  // Enhanced CORS headers for cross-origin requests
   res.header("Access-Control-Allow-Credentials", "true");
-
-  // Rest of your CORS setup
-  res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+  res.header(
+    "Access-Control-Allow-Methods",
+    "GET, POST, PUT, DELETE, OPTIONS, PATCH"
+  );
   res.header(
     "Access-Control-Allow-Headers",
-    "Origin, X-Requested-With, Content-Type, Accept, Authorization"
+    "Origin, X-Requested-With, Content-Type, Accept, Authorization, X-CSRF-Token, Cache-Control"
   );
 
+  // Handle preflight requests
   if (req.method === "OPTIONS") {
+    res.header("Access-Control-Max-Age", "86400"); // Cache preflight for 24 hours
     return res.status(200).end();
   }
 
@@ -41,8 +63,23 @@ app.use((req, res, next) => {
 
 // Error handling middleware
 app.use((err, req, res, next) => {
-  console.error("Server error:", err);
-  res.status(500).send("Something went wrong!");
+  const timestamp = new Date().toISOString();
+  console.error(`${timestamp} - Server error:`, err);
+
+  // Don't expose internal error details in production
+  const errorResponse = {
+    success: false,
+    message: "Internal server error",
+    timestamp,
+  };
+
+  // In development, include more error details
+  if (process.env.NODE_ENV !== "production") {
+    errorResponse.error = err.message;
+    errorResponse.stack = err.stack;
+  }
+
+  res.status(500).json(errorResponse);
 });
 
 // Middleware - Apply before route handlers
@@ -53,16 +90,56 @@ app.use(express.static(path.join(__dirname)));
 
 // Test endpoint to verify server is working
 app.get("/api/test", (req, res) => {
-  res.json({ message: "API is working!" });
+  res.json({
+    success: true,
+    message: "API is working!",
+    timestamp: new Date().toISOString(),
+    environment: process.env.NODE_ENV || "development",
+  });
 });
 
-// Admin credentials - Change these to your preferred admin username and password
-const ADMIN_CREDENTIALS = {
-  username: "admin",
-  password: "muadmin2025", // You should change this to a secure password
-  userId: "admin-1",
-  firstname: "Admin",
-  lastname: "User",
+// Health check endpoint
+app.get("/api/health", async (req, res) => {
+  const healthStatus = {
+    success: true,
+    status: "healthy",
+    timestamp: new Date().toISOString(),
+    services: {
+      database: "unknown",
+      server: "running",
+    },
+  };
+
+  // Check database connection
+  if (pool) {
+    try {
+      const connection = await pool.getConnection();
+      connection.release();
+      healthStatus.services.database = "connected";
+    } catch (error) {
+      healthStatus.services.database = "disconnected";
+      healthStatus.success = false;
+      healthStatus.status = "degraded";
+    }
+  } else {
+    healthStatus.services.database = "not_configured";
+    healthStatus.success = false;
+    healthStatus.status = "degraded";
+  }
+
+  const statusCode = healthStatus.success ? 200 : 503;
+  res.status(statusCode).json(healthStatus);
+});
+
+// Environment-based admin credentials - More secure approach
+const getAdminCredentials = () => {
+  return {
+    username: process.env.ADMIN_USERNAME || "admin",
+    password: process.env.ADMIN_PASSWORD || "muadmin2025",
+    userId: process.env.ADMIN_USER_ID || "admin-1",
+    firstname: process.env.ADMIN_FIRSTNAME || "Admin",
+    lastname: process.env.ADMIN_LASTNAME || "User",
+  };
 };
 
 // Database configuration for a local MySQL/MariaDB file
@@ -112,143 +189,260 @@ try {
   console.error("Failed to create database pool:", error);
 }
 
-// Enhanced API endpoint with better logging
+// Enhanced API endpoint with comprehensive Moodle authentication
 app.post("/api/moodle-login", async (req, res) => {
-  console.log("Login attempt received:", { username: req.body.username });
-
-  const { username, password } = req.body;
-
-  if (!username || !password) {
-    return res.status(400).json({
-      success: false,
-      message: "Username and password are required",
-    });
-  }
-
-  // Admin check remains the same
-  if (
-    username === ADMIN_CREDENTIALS.username &&
-    password === ADMIN_CREDENTIALS.password
-  ) {
-    console.log("Admin login successful");
-    return res.json({
-      success: true,
-      userId: ADMIN_CREDENTIALS.userId,
-      username: ADMIN_CREDENTIALS.username,
-      fullName: `${ADMIN_CREDENTIALS.firstname} ${ADMIN_CREDENTIALS.lastname}`,
-      isAdmin: true,
-    });
-  }
-
-  // Database check
-  if (!pool) {
-    console.error("Database connection not available");
-    return res.status(500).json({
-      success: false,
-      message: "Database connection not available",
-    });
-  }
+  const timestamp = new Date().toISOString();
+  const clientIP = req.ip || req.connection.remoteAddress;
 
   try {
+    // Validate request body
+    if (!req.body) {
+      console.log(
+        `${timestamp} - Login attempt failed: Missing request body from ${clientIP}`
+      );
+      return res.status(400).json({
+        success: false,
+        message: "Request body is required",
+        error: "MISSING_BODY",
+      });
+    }
+
+    const { username, password } = req.body;
+
+    // Validate required fields
+    if (!username || !password) {
+      console.log(
+        `${timestamp} - Login attempt failed: Missing credentials from ${clientIP}`
+      );
+      return res.status(400).json({
+        success: false,
+        message: "Username and password are required",
+        error: "MISSING_CREDENTIALS",
+      });
+    }
+
+    // Sanitize username (basic validation)
+    const sanitizedUsername = username.toString().trim();
+    if (sanitizedUsername.length === 0 || sanitizedUsername.length > 100) {
+      console.log(
+        `${timestamp} - Login attempt failed: Invalid username format from ${clientIP}`
+      );
+      return res.status(400).json({
+        success: false,
+        message: "Invalid username format",
+        error: "INVALID_USERNAME",
+      });
+    }
+
+    console.log(
+      `${timestamp} - Login attempt for user: ${sanitizedUsername} from ${clientIP}`
+    );
+
+    // Check admin credentials first
+    const adminCreds = getAdminCredentials();
+    if (
+      sanitizedUsername === adminCreds.username &&
+      password === adminCreds.password
+    ) {
+      console.log(
+        `${timestamp} - Admin login successful for ${sanitizedUsername}`
+      );
+      return res.json({
+        success: true,
+        userId: adminCreds.userId,
+        username: adminCreds.username,
+        fullName: `${adminCreds.firstname} ${adminCreds.lastname}`,
+        email: "admin@euclid-mu.in",
+        isAdmin: true,
+        loginTime: timestamp,
+      });
+    }
+
+    // Database authentication
+    if (!pool) {
+      console.error(`${timestamp} - Database connection not available`);
+      return res.status(503).json({
+        success: false,
+        message: "Authentication service temporarily unavailable",
+        error: "DATABASE_UNAVAILABLE",
+      });
+    }
+
     const connection = await pool.getConnection();
     try {
-      // Get user from database
+      // Enhanced query with Moodle-specific constraints
       const [users] = await connection.query(
-        `SELECT id, username, password, firstname, lastname, email
+        `SELECT id, username, password, firstname, lastname, email, auth, confirmed, suspended, deleted
          FROM mdl_user
-         WHERE username = ? AND deleted = 0 AND suspended = 0`,
-        [username]
+         WHERE username = ? 
+         AND deleted = 0 
+         AND suspended = 0 
+         AND confirmed = 1 
+         AND auth = 'manual'
+         LIMIT 1`,
+        [sanitizedUsername]
       );
 
       if (users.length === 0) {
+        console.log(
+          `${timestamp} - User not found or not eligible: ${sanitizedUsername}`
+        );
         return res.status(401).json({
           success: false,
-          message: "User not found",
+          message: "Invalid username or password",
+          error: "USER_NOT_FOUND",
         });
       }
 
       const user = users[0];
-
-      // Log the password format to help debugging
       console.log(
-        `Password format for ${username}: ${user.password.substring(0, 8)}...`
+        `${timestamp} - User found: ${
+          user.username
+        }, password format: ${user.password.substring(0, 8)}...`
       );
 
-      // Verify password using your existing function
+      // Verify password using enhanced function
       const isValidPassword = await verifyMoodlePassword(
         password,
         user.password
       );
 
       if (!isValidPassword) {
+        console.log(
+          `${timestamp} - Invalid password for user: ${sanitizedUsername}`
+        );
         return res.status(401).json({
           success: false,
-          message: "Invalid password",
+          message: "Invalid username or password",
+          error: "INVALID_PASSWORD",
         });
       }
 
-      // Return success with user data
-      console.log("User login successful:", user.username);
+      // Successful authentication
+      console.log(`${timestamp} - User login successful: ${user.username}`);
       return res.json({
         success: true,
-        userId: user.id,
+        userId: user.id.toString(),
         username: user.username,
-        fullName: `${user.firstname} ${user.lastname}`,
+        fullName: `${user.firstname} ${user.lastname}`.trim(),
         email: user.email,
         isAdmin: false,
+        loginTime: timestamp,
       });
     } finally {
       connection.release();
     }
   } catch (error) {
-    console.error("Database error:", error);
+    console.error(`${timestamp} - Authentication error:`, {
+      message: error.message,
+      code: error.code,
+      sqlState: error.sqlState,
+      clientIP,
+    });
+
+    // Handle specific database errors
+    if (error.code === "ECONNREFUSED" || error.code === "ENOTFOUND") {
+      return res.status(503).json({
+        success: false,
+        message: "Authentication service temporarily unavailable",
+        error: "DATABASE_CONNECTION_FAILED",
+      });
+    }
+
     return res.status(500).json({
       success: false,
-      message: "Server error during authentication",
-      error: error.toString(),
+      message: "Authentication service error",
+      error: "INTERNAL_ERROR",
+      timestamp,
     });
   }
 });
 
 /**
- * Verify password against Moodle's hashing method
- * Note: Moodle uses different password hashing algorithms depending on version
- * You may need to adjust this function to match your specific Moodle configuration
+ * Enhanced Moodle password verification function
+ * Supports multiple Moodle password hashing formats:
+ * - bcrypt ($2y$, $2a$)
+ * - MD5 crypt with salt ($1$...)
+ * - Legacy plain MD5 hashes
  */
 async function verifyMoodlePassword(plainPassword, hashedPassword) {
-  // This is a simplified implementation
-  // Moodle stores password hash with algorithm info
-
-  // Common Moodle password formats:
-  // 1. password is stored as: $2y$10$HashedPasswordString (bcrypt)
-  // 2. password is stored as: $1$salt$HashedPasswordString (md5)
-  // 3. password is stored as: md5(plainPassword)
-
-  if (hashedPassword.startsWith("$2y$") || hashedPassword.startsWith("$2a$")) {
-    // bcrypt format
-    return await bcrypt.compare(plainPassword, hashedPassword);
-  } else if (hashedPassword.startsWith("$1$")) {
-    // md5 with salt format (you would need a md5crypt implementation)
-    console.warn("MD5 with salt format detected - implementation needed");
+  if (!plainPassword || !hashedPassword) {
+    console.error("verifyMoodlePassword: Missing password or hash");
     return false;
-  } else {
-    // legacy format (plain md5)
-    const crypto = require("crypto");
-    const md5Hash = crypto
-      .createHash("md5")
-      .update(plainPassword)
-      .digest("hex");
-    return md5Hash === hashedPassword;
+  }
+
+  try {
+    // 1. bcrypt format ($2y$ or $2a$)
+    if (
+      hashedPassword.startsWith("$2y$") ||
+      hashedPassword.startsWith("$2a$")
+    ) {
+      console.log("Using bcrypt verification");
+      return await bcrypt.compare(plainPassword, hashedPassword);
+    }
+
+    // 2. MD5 crypt with salt format ($1$salt$hash)
+    else if (hashedPassword.startsWith("$1$")) {
+      console.log("Using MD5 crypt verification");
+      try {
+        const verifiedHash = apacheMd5(plainPassword, hashedPassword);
+        return verifiedHash === hashedPassword;
+      } catch (error) {
+        console.error("MD5 crypt verification error:", error);
+        return false;
+      }
+    }
+
+    // 3. Legacy plain MD5 format (32-character hex string)
+    else if (/^[a-f0-9]{32}$/i.test(hashedPassword)) {
+      console.log("Using legacy MD5 verification");
+      const md5Hash = crypto
+        .createHash("md5")
+        .update(plainPassword)
+        .digest("hex");
+      return md5Hash.toLowerCase() === hashedPassword.toLowerCase();
+    }
+
+    // 4. Unknown format - log for debugging
+    else {
+      console.warn("Unknown password hash format:", {
+        format: hashedPassword.substring(0, 10) + "...",
+        length: hashedPassword.length,
+      });
+      return false;
+    }
+  } catch (error) {
+    console.error("Password verification error:", error);
+    return false;
   }
 }
 
-// Add this endpoint to test database connection
+// Enhanced database info endpoint
 app.get("/api/db-info", async (req, res) => {
+  // Check if user has permission (simple check for now)
+  const authHeader = req.headers.authorization;
+  if (
+    !authHeader ||
+    authHeader !== `Bearer ${process.env.DEBUG_TOKEN || "debug123"}`
+  ) {
+    return res.status(401).json({
+      success: false,
+      message: "Unauthorized access to database info",
+    });
+  }
+
   try {
-    // Get connection from pool
+    if (!pool) {
+      return res.status(503).json({
+        success: false,
+        message: "Database pool not available",
+        error: "DATABASE_NOT_CONFIGURED",
+      });
+    }
+
     const connection = await pool.getConnection();
     try {
-      // Get version and file path info
+      // Get comprehensive database information
       const [versionRows] = await connection.query(
         "SELECT VERSION() as version"
       );
@@ -257,28 +451,54 @@ app.get("/api/db-info", async (req, res) => {
       );
       const [tablesRows] = await connection.query("SHOW TABLES");
 
-      // Return information about the database
+      // Check if mdl_user table exists and get sample structure
+      const [userTableInfo] = await connection.query(`
+        SELECT COUNT(*) as user_count 
+        FROM mdl_user 
+        WHERE deleted = 0 AND suspended = 0 AND confirmed = 1 AND auth = 'manual'
+      `);
+
+      // Get password hash samples for debugging (first 10 chars only)
+      const [passwordSamples] = await connection.query(`
+        SELECT username, 
+               SUBSTRING(password, 1, 10) as password_prefix,
+               LENGTH(password) as password_length
+        FROM mdl_user 
+        WHERE deleted = 0 AND suspended = 0 AND confirmed = 1 AND auth = 'manual'
+        LIMIT 5
+      `);
+
       return res.json({
         success: true,
-        version: versionRows[0].version,
-        dataDirectory: variablesRows[0]?.Value,
-        tables: tablesRows.map((row) => Object.values(row)[0]),
+        database: {
+          version: versionRows[0].version,
+          dataDirectory: variablesRows[0]?.Value || "Unknown",
+          tableCount: tablesRows.length,
+          eligibleUsers: userTableInfo[0].user_count,
+        },
         connectionConfig: {
           host: dbConfig.host,
           port: dbConfig.port,
           database: dbConfig.database,
           socketPath: dbConfig.socketPath || "Not configured",
         },
+        passwordSamples: passwordSamples.map((sample) => ({
+          username: sample.username,
+          passwordPrefix: sample.password_prefix,
+          passwordLength: sample.password_length,
+        })),
+        timestamp: new Date().toISOString(),
       });
     } finally {
       connection.release();
     }
   } catch (error) {
-    console.error("Database error:", error);
+    console.error("Database info error:", error);
     return res.status(500).json({
       success: false,
-      message: "Server error querying database information",
-      error: error.toString(),
+      message: "Error querying database information",
+      error: error.code || error.message,
+      timestamp: new Date().toISOString(),
     });
   }
 });

@@ -62,6 +62,15 @@ echo "=== Application Configuration ==="
 prompt_var "APP_PORT" "Application port" "3000"
 
 echo
+echo "=== Admin Configuration ==="
+prompt_var "ADMIN_USERNAME" "Admin username" "admin"
+prompt_var "ADMIN_PASSWORD" "Admin password" "muadmin2025"
+prompt_var "ADMIN_USER_ID" "Admin user ID" "admin-1"
+prompt_var "ADMIN_FIRSTNAME" "Admin first name" "Admin"
+prompt_var "ADMIN_LASTNAME" "Admin last name" "User"
+prompt_var "DEBUG_TOKEN" "Debug token for database info endpoint" "debug123"
+
+echo
 echo "=== Database Sync Configuration ==="
 prompt_var "MOODLE_DB_PATH" "Path to the Moodle database files" "/euclidms/euclid-db"
 prompt_var "TEMP_SYNC_DIR" "Temporary directory for database sync" "/tmp/moodle-db-sync"
