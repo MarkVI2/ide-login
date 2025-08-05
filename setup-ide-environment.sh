@@ -55,7 +55,6 @@ prompt_var "DB_PORT" "Database port" "3306"
 prompt_var "DB_USER" "Database username" "moodle_user"
 prompt_var "DB_PASSWORD" "Database password" "moodle_password"
 prompt_var "DB_NAME" "Database name" "moodle"
-prompt_var "DB_SOCKET" "Database socket path (for local connections)" "/var/run/mysqld/mysqld.sock"
 
 echo
 echo "=== Application Configuration ==="

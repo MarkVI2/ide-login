@@ -96,7 +96,6 @@ Example password verification:
 | `DB_USER`        | Database username                   | `moodle_user`                 |
 | `DB_PASSWORD`    | Database password                   | `moodle_password`             |
 | `DB_NAME`        | Database name                       | `moodle`                      |
-| `DB_SOCKET`      | Socket path for local connections   | `/var/run/mysqld/mysqld.sock` |
 | `ADMIN_USERNAME` | Admin account username              | `admin`                       |
 | `ADMIN_PASSWORD` | Admin account password              | `muadmin2025`                 |
 | `DEBUG_TOKEN`    | Token for accessing debug endpoints | `debug123`                    |
@@ -186,9 +185,6 @@ Database information (requires `Authorization: Bearer <DEBUG_TOKEN>`).
    # For remote database
    DB_HOST=your-moodle-db-server.com
    DB_PORT=3306
-
-   # For local database file
-   DB_SOCKET=/path/to/mysql.sock
    ```
 
 3. **Start with Docker Compose:**
@@ -264,14 +260,6 @@ WHERE username = 'problem_user';
 ```
 
 #### 4. Database Connection Issues
-
-**For socket connections:**
-
-```bash
-# Verify socket exists and is accessible
-ls -la /var/run/mysqld/mysqld.sock
-docker exec judge0-ide-app ls -la /var/run/mysqld/
-```
 
 **For TCP connections:**
 

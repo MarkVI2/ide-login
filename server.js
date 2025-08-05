@@ -152,14 +152,13 @@ const dbConfig = {
   user: process.env.DB_USER || "moodle_user",
   password: process.env.DB_PASSWORD || "moodle_password",
   database: process.env.DB_NAME || "moodle",
-  socketPath: process.env.DB_SOCKET || "/var/run/mysqld/mysqld.sock",
   connectTimeout: parseInt(process.env.DB_TIMEOUT) || 60000,
   acquireTimeout: 60000,
   timeout: 60000,
   connectionLimit: parseInt(process.env.DB_CONNECTION_LIMIT) || 10,
   retryAttempts: parseInt(process.env.DB_RETRY_ATTEMPTS) || 3,
   retryDelay: parseInt(process.env.DB_RETRY_DELAY) || 5000,
-  useSocket: process.env.DB_USE_SOCKET === "true",
+  // Note: Socket support has been deprecated - TCP-only connections are now used
 };
 
 // Initialize database and authentication
@@ -328,43 +327,6 @@ app.post("/api/moodle-login", async (req, res) => {
         timestamp,
       });
     }
-      console.log(
-        `${timestamp} - User found: ${
-          user.username
-        }, password format: ${user.password.substring(0, 8)}...`
-      );
-
-      // Verify password using enhanced function
-      const isValidPassword = await verifyMoodlePassword(
-        password,
-        user.password
-      );
-
-      if (!isValidPassword) {
-        console.log(
-          `${timestamp} - Invalid password for user: ${sanitizedUsername}`
-        );
-        return res.status(401).json({
-          success: false,
-          message: "Invalid username or password",
-          error: "INVALID_PASSWORD",
-        });
-      }
-
-      // Successful authentication
-      console.log(`${timestamp} - User login successful: ${user.username}`);
-      return res.json({
-        success: true,
-        userId: user.id.toString(),
-        username: user.username,
-        fullName: `${user.firstname} ${user.lastname}`.trim(),
-        email: user.email,
-        isAdmin: false,
-        loginTime: timestamp,
-      });
-    } finally {
-      connection.release();
-    }
   } catch (error) {
     console.error(`${timestamp} - Authentication error:`, {
       message: error.message,
@@ -390,6 +352,11 @@ app.post("/api/moodle-login", async (req, res) => {
     });
   }
 });
+
+/**
+      timestamp,
+    });
+  }
 
 /**
  * Enhanced Moodle password verification function
@@ -513,7 +480,7 @@ app.get("/api/db-info", async (req, res) => {
           host: dbConfig.host,
           port: dbConfig.port,
           database: dbConfig.database,
-          socketPath: dbConfig.socketPath || "Not configured",
+          // Note: Socket support has been deprecated - TCP-only connections are used
         },
         passwordSamples: passwordSamples.map((sample) => ({
           username: sample.username,

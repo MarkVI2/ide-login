@@ -15,7 +15,6 @@ services:
       - DB_USER=${DB_USER:-moodle_user}
       - DB_PASSWORD=${DB_PASSWORD:-moodle_password}
       - DB_NAME=${DB_NAME:-moodle}
-      - DB_SOCKET=${DB_SOCKET:-/var/run/mysqld/mysqld.sock}
       - DB_DEBUG=${DB_DEBUG:-false}
       - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-muadmin2025}
