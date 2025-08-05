@@ -123,6 +123,9 @@ app.get("/api/health", async (req, res) => {
       healthStatus.success = false;
       healthStatus.status = "degraded";
       healthStatus.services.databaseError = dbHealth.error;
+      healthStatus.services.databaseDetails = dbHealth;
+    } else {
+      healthStatus.services.databaseDetails = dbHealth;
     }
   } else {
     healthStatus.services.database = "not_initialized";
@@ -132,6 +135,122 @@ app.get("/api/health", async (req, res) => {
 
   const statusCode = healthStatus.success ? 200 : 503;
   res.status(statusCode).json(healthStatus);
+});
+
+// Comprehensive diagnostics endpoint
+app.get("/api/diagnostics", async (req, res) => {
+  if (!dbManager) {
+    return res.status(503).json({
+      success: false,
+      message: "Database manager not initialized",
+      timestamp: new Date().toISOString(),
+    });
+  }
+
+  try {
+    const dbHealth = await dbManager.getHealthStatus();
+    const diagnostics = {
+      success: true,
+      timestamp: new Date().toISOString(),
+      environment: {
+        nodeVersion: process.version,
+        platform: process.platform,
+        arch: process.arch,
+        uptime: Math.floor(process.uptime()),
+        memory: process.memoryUsage(),
+        environment: process.env.NODE_ENV || "development",
+      },
+      database: dbHealth,
+      moodle: null,
+    };
+
+    // Test Moodle connection if database is healthy
+    if (moodleAuth && dbHealth.status === "healthy") {
+      try {
+        const moodleTest = await moodleAuth.testMoodleConnection();
+        diagnostics.moodle = moodleTest;
+      } catch (error) {
+        diagnostics.moodle = {
+          success: false,
+          error: error.message,
+        };
+      }
+    }
+
+    res.json(diagnostics);
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Diagnostics failed",
+      error: error.message,
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+// Database connection troubleshooting endpoint
+app.get("/api/troubleshoot", async (req, res) => {
+  const authHeader = req.headers.authorization;
+  const debugToken = process.env.DEBUG_TOKEN || "debug123";
+
+  // Simple debug authentication
+  if (!authHeader || !authHeader.includes(debugToken)) {
+    return res.status(401).json({
+      success: false,
+      message: "Debug token required",
+      hint: "Include 'Authorization: Bearer YOUR_DEBUG_TOKEN' header",
+    });
+  }
+
+  try {
+    const troubleshoot = {
+      timestamp: new Date().toISOString(),
+      configuration: {
+        host: dbConfig.host,
+        port: dbConfig.port,
+        database: dbConfig.database,
+        user: dbConfig.user,
+        useSocket: dbConfig.useSocket,
+        socketPath: dbConfig.useSocket ? dbConfig.socketPath : "N/A",
+        connectionLimit: dbConfig.connectionLimit,
+        timeout: dbConfig.connectTimeout,
+      },
+      status: {
+        managerInitialized: !!dbManager,
+        authInitialized: !!moodleAuth,
+        connectionStrategy: dbManager?.connectionStrategy || "unknown",
+        lastError: dbManager?.lastError?.message || "none",
+      },
+      suggestions: [],
+    };
+
+    // Add specific troubleshooting suggestions
+    if (!dbManager) {
+      troubleshoot.suggestions.push(
+        "Database manager failed to initialize - check configuration"
+      );
+    } else {
+      const dbHealth = await dbManager.getHealthStatus();
+      if (dbHealth.status !== "healthy") {
+        troubleshoot.suggestions.push(
+          ...(dbHealth.diagnostics?.resolution?.suggestions || [])
+        );
+      }
+    }
+
+    if (troubleshoot.suggestions.length === 0) {
+      troubleshoot.suggestions.push("System appears to be healthy");
+    }
+
+    res.json(troubleshoot);
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Troubleshooting failed",
+      error: error.message,
+      timestamp: new Date().toISOString(),
+    });
+  }
 });
 
 // Environment-based admin credentials - More secure approach
@@ -171,12 +290,12 @@ async function initializeDatabase() {
     console.log("Initializing database connection...");
     dbManager = new DatabaseManager(dbConfig);
     await dbManager.initialize();
-    
+
     // Initialize Moodle authentication
     moodleAuth = new MoodleAuth(dbManager, {
-      tablePrefix: process.env.MOODLE_TABLE_PREFIX || "mdl_"
+      tablePrefix: process.env.MOODLE_TABLE_PREFIX || "mdl_",
     });
-    
+
     // Test Moodle connection
     const testResult = await moodleAuth.testMoodleConnection();
     if (testResult.success) {
@@ -187,11 +306,11 @@ async function initializeDatabase() {
     } else {
       console.warn("⚠ Moodle verification failed:", testResult.message);
     }
-    
+
     return true;
   } catch (error) {
     console.error("Database initialization failed:", error.message);
-    
+
     // Provide diagnosis
     const diagnosis = DatabaseManager.diagnoseConnectionError(error);
     console.log("\n🔍 Connection Diagnosis:");
@@ -200,7 +319,7 @@ async function initializeDatabase() {
     diagnosis.suggestions.forEach((suggestion, index) => {
       console.log(`  ${index + 1}. ${suggestion}`);
     });
-    
+
     return false;
   }
 }
@@ -208,7 +327,9 @@ async function initializeDatabase() {
 // Initialize database on startup
 initializeDatabase().then((success) => {
   if (!success) {
-    console.error("❌ Database initialization failed. Server will continue with limited functionality.");
+    console.error(
+      "❌ Database initialization failed. Server will continue with limited functionality."
+    );
   }
 });
 
@@ -294,11 +415,14 @@ app.post("/api/moodle-login", async (req, res) => {
 
     try {
       // Authenticate using MoodleAuth utility
-      const user = await moodleAuth.authenticateUser(sanitizedUsername, password);
-      
+      const user = await moodleAuth.authenticateUser(
+        sanitizedUsername,
+        password
+      );
+
       // Update last login time
       await moodleAuth.updateLastLogin(user.id);
-      
+
       console.log(
         `${timestamp} - Moodle login successful for user: ${user.username} (ID: ${user.id})`
       );
@@ -324,46 +448,11 @@ app.post("/api/moodle-login", async (req, res) => {
       return res.status(401).json({
         success: false,
         message: "Invalid username or password",
-        error: authError.message.includes("not found") ? "USER_NOT_FOUND" : "INVALID_CREDENTIALS",
+        error: authError.message.includes("not found")
+          ? "USER_NOT_FOUND"
+          : "INVALID_CREDENTIALS",
         timestamp,
       });
-    }
-      console.log(
-        `${timestamp} - User found: ${
-          user.username
-        }, password format: ${user.password.substring(0, 8)}...`
-      );
-
-      // Verify password using enhanced function
-      const isValidPassword = await verifyMoodlePassword(
-        password,
-        user.password
-      );
-
-      if (!isValidPassword) {
-        console.log(
-          `${timestamp} - Invalid password for user: ${sanitizedUsername}`
-        );
-        return res.status(401).json({
-          success: false,
-          message: "Invalid username or password",
-          error: "INVALID_PASSWORD",
-        });
-      }
-
-      // Successful authentication
-      console.log(`${timestamp} - User login successful: ${user.username}`);
-      return res.json({
-        success: true,
-        userId: user.id.toString(),
-        username: user.username,
-        fullName: `${user.firstname} ${user.lastname}`.trim(),
-        email: user.email,
-        isAdmin: false,
-        loginTime: timestamp,
-      });
-    } finally {
-      connection.release();
     }
   } catch (error) {
     console.error(`${timestamp} - Authentication error:`, {
