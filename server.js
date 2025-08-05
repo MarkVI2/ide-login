@@ -5,6 +5,11 @@ const path = require("path");
 const mysql = require("mysql2/promise");
 const crypto = require("crypto");
 const apacheMd5 = require("apache-md5");
+
+// Import our custom utilities
+const DatabaseManager = require("./lib/database");
+const MoodleAuth = require("./lib/moodle-auth");
+
 const app = express();
 const PORT = process.env.PORT || 3000;
 
@@ -111,18 +116,16 @@ app.get("/api/health", async (req, res) => {
   };
 
   // Check database connection
-  if (pool) {
-    try {
-      const connection = await pool.getConnection();
-      connection.release();
-      healthStatus.services.database = "connected";
-    } catch (error) {
-      healthStatus.services.database = "disconnected";
+  if (dbManager) {
+    const dbHealth = await dbManager.getHealthStatus();
+    healthStatus.services.database = dbHealth.status;
+    if (dbHealth.status !== "healthy") {
       healthStatus.success = false;
       healthStatus.status = "degraded";
+      healthStatus.services.databaseError = dbHealth.error;
     }
   } else {
-    healthStatus.services.database = "not_configured";
+    healthStatus.services.database = "not_initialized";
     healthStatus.success = false;
     healthStatus.status = "degraded";
   }
@@ -142,52 +145,72 @@ const getAdminCredentials = () => {
   };
 };
 
-// Database configuration for a local MySQL/MariaDB file
+// Enhanced database configuration with fallback strategies
 const dbConfig = {
   host: process.env.DB_HOST || "localhost",
-  port: process.env.DB_PORT || 3306,
+  port: parseInt(process.env.DB_PORT) || 3306,
   user: process.env.DB_USER || "moodle_user",
   password: process.env.DB_PASSWORD || "moodle_password",
   database: process.env.DB_NAME || "moodle",
-  socketPath: process.env.DB_SOCKET || "/var/run/mysqld/mysqld.sock", // For local file access
-  connectTimeout: 60000, // Increase timeout for better reliability
+  socketPath: process.env.DB_SOCKET || "/var/run/mysqld/mysqld.sock",
+  connectTimeout: parseInt(process.env.DB_TIMEOUT) || 60000,
+  acquireTimeout: 60000,
+  timeout: 60000,
+  connectionLimit: parseInt(process.env.DB_CONNECTION_LIMIT) || 10,
+  retryAttempts: parseInt(process.env.DB_RETRY_ATTEMPTS) || 3,
+  retryDelay: parseInt(process.env.DB_RETRY_DELAY) || 5000,
+  useSocket: process.env.DB_USE_SOCKET === "true",
 };
 
-// Create connection pool with enhanced error handling
-let pool;
-try {
-  pool = mysql.createPool({
-    host: dbConfig.host,
-    port: dbConfig.port,
-    user: dbConfig.user,
-    password: dbConfig.password,
-    database: dbConfig.database,
-    socketPath: dbConfig.socketPath,
-    waitForConnections: true,
-    connectionLimit: 10,
-    queueLimit: 0,
-    connectTimeout: dbConfig.connectTimeout,
-    debug:
-      process.env.DB_DEBUG === "true"
-        ? ["ComQueryPacket", "RowDataPacket"]
-        : false,
-  });
+// Initialize database and authentication
+let dbManager;
+let moodleAuth;
 
-  // Test connection immediately
-  pool
-    .getConnection()
-    .then((connection) => {
-      console.log("MySQL/MariaDB database connection test successful");
-      connection.release();
-    })
-    .catch((err) => {
-      console.error("Database connection test failed:", err);
+async function initializeDatabase() {
+  try {
+    console.log("Initializing database connection...");
+    dbManager = new DatabaseManager(dbConfig);
+    await dbManager.initialize();
+    
+    // Initialize Moodle authentication
+    moodleAuth = new MoodleAuth(dbManager, {
+      tablePrefix: process.env.MOODLE_TABLE_PREFIX || "mdl_"
     });
-
-  console.log("MySQL/MariaDB database pool created successfully");
-} catch (error) {
-  console.error("Failed to create database pool:", error);
+    
+    // Test Moodle connection
+    const testResult = await moodleAuth.testMoodleConnection();
+    if (testResult.success) {
+      console.log("✓ Moodle database verified:", testResult.message);
+      console.log("  - User table:", testResult.table);
+      console.log("  - Total users:", testResult.stats.totalUsers);
+      console.log("  - Active users:", testResult.stats.activeUsers);
+    } else {
+      console.warn("⚠ Moodle verification failed:", testResult.message);
+    }
+    
+    return true;
+  } catch (error) {
+    console.error("Database initialization failed:", error.message);
+    
+    // Provide diagnosis
+    const diagnosis = DatabaseManager.diagnoseConnectionError(error);
+    console.log("\n🔍 Connection Diagnosis:");
+    console.log("Error Code:", diagnosis.code);
+    console.log("Suggestions:");
+    diagnosis.suggestions.forEach((suggestion, index) => {
+      console.log(`  ${index + 1}. ${suggestion}`);
+    });
+    
+    return false;
+  }
 }
+
+// Initialize database on startup
+initializeDatabase().then((success) => {
+  if (!success) {
+    console.error("❌ Database initialization failed. Server will continue with limited functionality.");
+  }
+});
 
 // Enhanced API endpoint with comprehensive Moodle authentication
 app.post("/api/moodle-login", async (req, res) => {
@@ -258,43 +281,53 @@ app.post("/api/moodle-login", async (req, res) => {
       });
     }
 
-    // Database authentication
-    if (!pool) {
+    // Database authentication using MoodleAuth
+    if (!dbManager || !moodleAuth) {
       console.error(`${timestamp} - Database connection not available`);
       return res.status(503).json({
         success: false,
         message: "Authentication service temporarily unavailable",
         error: "DATABASE_UNAVAILABLE",
+        timestamp,
       });
     }
 
-    const connection = await pool.getConnection();
     try {
-      // Enhanced query with Moodle-specific constraints
-      const [users] = await connection.query(
-        `SELECT id, username, password, firstname, lastname, email, auth, confirmed, suspended, deleted
-         FROM mdl_user
-         WHERE username = ? 
-         AND deleted = 0 
-         AND suspended = 0 
-         AND confirmed = 1 
-         AND auth = 'manual'
-         LIMIT 1`,
-        [sanitizedUsername]
+      // Authenticate using MoodleAuth utility
+      const user = await moodleAuth.authenticateUser(sanitizedUsername, password);
+      
+      // Update last login time
+      await moodleAuth.updateLastLogin(user.id);
+      
+      console.log(
+        `${timestamp} - Moodle login successful for user: ${user.username} (ID: ${user.id})`
       );
 
-      if (users.length === 0) {
-        console.log(
-          `${timestamp} - User not found or not eligible: ${sanitizedUsername}`
-        );
-        return res.status(401).json({
-          success: false,
-          message: "Invalid username or password",
-          error: "USER_NOT_FOUND",
-        });
-      }
+      return res.json({
+        success: true,
+        userId: user.id,
+        username: user.username,
+        fullName: user.fullname,
+        firstname: user.firstname,
+        lastname: user.lastname,
+        email: user.email,
+        isAdmin: false,
+        authMethod: user.auth,
+        loginTime: timestamp,
+        message: "Authentication successful",
+      });
+    } catch (authError) {
+      console.log(
+        `${timestamp} - Moodle authentication failed for ${sanitizedUsername}: ${authError.message}`
+      );
 
-      const user = users[0];
+      return res.status(401).json({
+        success: false,
+        message: "Invalid username or password",
+        error: authError.message.includes("not found") ? "USER_NOT_FOUND" : "INVALID_CREDENTIALS",
+        timestamp,
+      });
+    }
       console.log(
         `${timestamp} - User found: ${
           user.username
