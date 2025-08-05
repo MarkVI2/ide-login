@@ -1,105 +1,65 @@
 # Judge0 IDE - Moodle Authentication System
 
 A robust Node.js authentication server that integrates Judge0 IDE with Moodle
-user accounts, supporting multiple password hash formats, comprehensive error
-diagnostics, and production-ready deployment.
+user accounts, supporting multiple password hash formats and production-ready
+deployment.
 
 ## Features
 
 - **Multi-format password support**: bcrypt, MD5 crypt, legacy MD5
 - **Moodle database integration** with proper user validation
 - **Environment-based configuration** for secure deployments
-- **Cross-origin support** for frontend integration
-- **Comprehensive error handling** and intelligent diagnostics
+- **Cross-origin support** for https://code.euclid-mu.in
+- **Comprehensive error handling** and logging
 - **Docker-ready** with automated deployment scripts
 - **Health monitoring** and debugging endpoints
-- **Comprehensive testing** suite with cloud VM setup
-- **Auto-resolution** for common database connection issues
 
 ## Quick Start
 
-### Option 1: Local Development
+### 1. Setup Environment
 
 ```bash
-# Clone the repository
-git clone https://github.com/MarkVI2/ide-login.git
-cd ide-login
-
-# Install dependencies
-npm install
-
-# Setup environment (interactive)
+# Run the interactive setup script
 ./setup-ide-environment.sh
 
-# Start the server
-npm start
-
-# Test the API
-./comprehensive-api-test.sh
+# Or manually create .env file with:
+DB_HOST=localhost
+DB_PORT=3306
+DB_USER=moodle_user
+DB_PASSWORD=moodle_password
+DB_NAME=moodle
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD=your_secure_password
 ```
 
-### Option 2: Cloud VM with Test Database
+### 2. Deploy with Docker
 
 ```bash
-# On a fresh Ubuntu/Debian cloud VM
-wget https://raw.githubusercontent.com/MarkVI2/ide-login/main/setup-cloud-moodle-test.sh
-chmod +x setup-cloud-moodle-test.sh
-sudo ./setup-cloud-moodle-test.sh
-
-# Clone and start the authentication server
-git clone https://github.com/MarkVI2/ide-login.git
-cd ide-login
-npm install
-npm start
-```
-
-### Option 3: Docker Deployment
-
-```bash
-# Build and start with Docker Compose
+# Build and start the container
 docker-compose up -d
 
 # Check logs
 docker-compose logs -f
 
-# Test deployment
+# Test the deployment
 ./test-auth-system.sh
 ```
 
-## 🔧 Configuration
+### 3. Test Authentication
 
-### Environment Variables
+Visit `http://localhost:3000/login.html` or test the API directly:
 
-Create a `.env` file (copy from `.env.example`):
+```bash
+# Test admin login
+curl -X POST http://localhost:3000/api/moodle-login \
+  -H "Content-Type: application/json" \
+  -d '{"username":"admin","password":"your_admin_password"}'
 
-| Variable              | Description                       | Default                       | Required |
-| --------------------- | --------------------------------- | ----------------------------- | -------- |
-| `DB_HOST`             | Database hostname                 | `localhost`                   | Yes      |
-| `DB_PORT`             | Database port                     | `3306`                        | Yes      |
-| `DB_USER`             | Database username                 | `moodle_user`                 | Yes      |
-| `DB_PASSWORD`         | Database password                 | `moodle_password`             | Yes      |
-| `DB_NAME`             | Database name                     | `moodle`                      | Yes      |
-| `DB_SOCKET`           | Socket path for local connections | `/var/run/mysqld/mysqld.sock` | No       |
-| `DB_USE_SOCKET`       | Use socket instead of TCP         | `false`                       | No       |
-| `MOODLE_TABLE_PREFIX` | Moodle table prefix               | `mdl_`                        | No       |
-| `ADMIN_USERNAME`      | Admin account username            | `admin`                       | No       |
-| `ADMIN_PASSWORD`      | Admin account password            | `muadmin2025`                 | No       |
-| `DEBUG_TOKEN`         | Token for debug endpoints         | `debug123`                    | No       |
+# Test health check
+curl http://localhost:3000/api/health
+```
 
-### Database Connection Strategies
-
-The system automatically tries multiple connection strategies:
-
-1. **Socket Connection** (if `DB_USE_SOCKET=true`)
-
-   - Fastest for local databases
-   - Falls back to TCP if socket fails
-
-2. **TCP Connection** (default)
-   - Works for local and remote databases
-   - More compatible across environments
-
-## 🎓 Moodle Integration
+## Moodle Integration
 
 ### Database Requirements
 
@@ -109,338 +69,38 @@ constraints:
 - `deleted = 0` (not deleted)
 - `suspended = 0` (not suspended)
 - `confirmed = 1` (email confirmed)
-- Valid password hash format
+- `auth = 'manual'` (manual authentication)
 
 ### Supported Password Formats
 
-| Format         | Example               | Description              |
-| -------------- | --------------------- | ------------------------ |
-| **bcrypt**     | `$2y$10$abcdefg...`   | Modern Moodle (3.5+)     |
-| **MD5 crypt**  | `$1$salt$hash...`     | Older Moodle with salt   |
-| **Legacy MD5** | `5d41402abc4b2a76...` | Plain MD5 (32 hex chars) |
+1. **bcrypt** (`$2y$` or `$2a$`) - Modern Moodle installations
+2. **MD5 crypt** (`$1$salt$hash`) - Older installations with salt
+3. **Legacy MD5** - Plain MD5 hashes (32 hex characters)
 
-### Example Password Hashes
+Example password verification:
 
 ```javascript
-// bcrypt (recommended): password = "password123"
-$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi
-
-// MD5 crypt: password = "password123"
-$1$salt123$hashedpassword123456789
-
-// Legacy MD5: password = "hello"
-5d41402abc4b2a76b9719d911017c592
+// bcrypt: $2y$10$abcdefghijklmnopqrstuvwxyz...
+// MD5 crypt: $1$salt123$hashedpassword
+// Legacy MD5: 5d41402abc4b2a76b9719d911017c592
 ```
 
-## 🌐 API Documentation
-
-### Authentication Endpoint
-
-**POST** `/api/moodle-login`
-
-```json
-{
-  "username": "student123",
-  "password": "userpassword"
-}
-```
-
-**Success Response (200):**
-
-```json
-{
-  "success": true,
-  "userId": "12345",
-  "username": "student123",
-  "fullName": "John Doe",
-  "firstname": "John",
-  "lastname": "Doe",
-  "email": "john.doe@university.edu",
-  "isAdmin": false,
-  "authMethod": "manual",
-  "loginTime": "2025-01-20T10:30:00.000Z",
-  "message": "Authentication successful"
-}
-```
-
-**Error Response (401):**
-
-```json
-{
-  "success": false,
-  "message": "Invalid username or password",
-  "error": "INVALID_CREDENTIALS",
-  "timestamp": "2025-01-20T10:30:00.000Z"
-}
-```
-
-### Monitoring Endpoints
-
-#### Health Check
-
-**GET** `/api/health`
-
-Returns system health status including database connectivity.
-
-#### Diagnostics
-
-**GET** `/api/diagnostics`
-
-Comprehensive system diagnostics including:
-
-- Environment information
-- Database status and performance
-- Moodle connection validation
-
-#### Troubleshooting
-
-**GET** `/api/troubleshoot`
-
-Requires: `Authorization: Bearer YOUR_DEBUG_TOKEN`
-
-Detailed troubleshooting information with:
-
-- Configuration validation
-- Connection error diagnosis
-- Resolution suggestions
-
-### Frontend Integration
-
-```javascript
-// Login function for frontend
-async function authenticateUser(username, password) {
-  try {
-    const response = await fetch("/api/moodle-login", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ username, password }),
-    });
-
-    const data = await response.json();
-
-    if (data.success) {
-      // Store user info and redirect to IDE
-      localStorage.setItem("user", JSON.stringify(data));
-      window.location.href = "https://code.euclid-mu.in";
-    } else {
-      // Show error message
-      showError(data.message);
-    }
-  } catch (error) {
-    showError("Authentication service unavailable");
-  }
-}
-```
-
-## 🚨 Error Handling & Diagnostics
-
-### Common Database Connection Errors
-
-| Error Code               | Description           | Auto-Resolution           |
-| ------------------------ | --------------------- | ------------------------- |
-| `ENOENT`                 | Socket file not found | ✅ Falls back to TCP      |
-| `ECONNREFUSED`           | Connection refused    | ❌ Check DB status        |
-| `EACCES`                 | Permission denied     | ❌ Check file permissions |
-| `ER_ACCESS_DENIED_ERROR` | Auth failed           | ❌ Check credentials      |
-
-### Diagnostic Tools
-
-1. **Health Check**: Monitor real-time system status
-2. **Auto-diagnosis**: Intelligent error analysis with suggestions
-3. **Troubleshoot Endpoint**: Detailed system information for debugging
-4. **Comprehensive Logging**: Structured logs with sanitized sensitive data
-
-### Resolution Suggestions
-
-The system provides intelligent suggestions for common issues:
-
-```bash
-# Socket connection failed example
-curl http://localhost:3000/api/health
-# Response includes:
-# "suggestions": [
-#   "Switch to TCP connection by setting DB_USE_SOCKET=false",
-#   "Verify MySQL is running: sudo systemctl status mysql",
-#   "Check socket path: ls -la /var/run/mysqld/mysqld.sock"
-# ]
-```
-
-## 🧪 Testing
-
-### Comprehensive Test Suite
-
-```bash
-# Run all tests
-./comprehensive-api-test.sh
-
-# Verbose output
-VERBOSE=true ./comprehensive-api-test.sh
-
-# Test against different server
-BASE_URL=https://your-domain.com ./comprehensive-api-test.sh
-```
-
-### Test Categories
-
-1. **Basic Health Tests** - Server availability and health endpoints
-2. **Performance Tests** - Response time validation
-3. **Authentication Logic** - Login flow validation
-4. **Security Tests** - SQL injection, XSS protection
-5. **Error Handling** - Malformed requests and edge cases
-6. **CORS Tests** - Cross-origin request handling
-7. **Database Tests** - Connection and query validation
-8. **Load Tests** - Basic concurrent request handling
-
-### Setting Up Test Data
-
-The `setup-cloud-moodle-test.sh` script creates sample users:
-
-| Username    | Password      | Format     | Status       |
-| ----------- | ------------- | ---------- | ------------ |
-| `admin`     | `admin123`    | bcrypt     | Active admin |
-| `testuser1` | `password123` | bcrypt     | Active user  |
-| `testuser2` | `password123` | MD5 crypt  | Active user  |
-| `testuser3` | `hello`       | Legacy MD5 | Active user  |
-| `inactive`  | `admin123`    | bcrypt     | Unconfirmed  |
-| `deleted`   | `admin123`    | bcrypt     | Deleted      |
-
-## 🐳 Docker Support
-
-### Docker Compose Setup
-
-```yaml
-version: "3.8"
-services:
-  auth-server:
-    build: .
-    ports:
-      - "3000:3000"
-    environment:
-      - DB_HOST=mariadb
-      - DB_USER=moodle_user
-      - DB_PASSWORD=secure_password
-      - DB_NAME=moodle
-    depends_on:
-      - mariadb
-
-  mariadb:
-    image: mariadb:10.6
-    environment:
-      - MYSQL_ROOT_PASSWORD=root_password
-      - MYSQL_DATABASE=moodle
-      - MYSQL_USER=moodle_user
-      - MYSQL_PASSWORD=secure_password
-```
-
-### Production Deployment
-
-```bash
-# Build production image
-docker build -t judge0-auth-server .
-
-# Run with production config
-docker run -d \
-  --name auth-server \
-  -p 3000:3000 \
-  -e NODE_ENV=production \
-  -e DB_HOST=your-db-host \
-  -e DB_PASSWORD=your-secure-password \
-  judge0-auth-server
-```
-
-## 🔒 Security Considerations
-
-### Production Checklist
-
-- [ ] Change default admin credentials
-- [ ] Use strong database passwords
-- [ ] Generate secure debug token: `openssl rand -hex 16`
-- [ ] Set `NODE_ENV=production`
-- [ ] Configure firewall rules
-- [ ] Enable HTTPS/TLS
-- [ ] Restrict database access to necessary hosts
-- [ ] Regularly rotate credentials
-- [ ] Monitor authentication logs
-- [ ] Keep dependencies updated
-
-### Security Headers
-
-The server automatically sets security headers:
-
-- CORS configuration for allowed origins
-- Request sanitization and validation
-- SQL injection prevention
-- XSS protection through input validation
-
-## 📊 Monitoring & Logging
-
-### Log Structure
-
-```json
-{
-  "timestamp": "2025-01-20T10:30:00.000Z",
-  "level": "info",
-  "message": "Moodle login successful",
-  "username": "student123",
-  "userId": "12345",
-  "clientIP": "192.168.1.100",
-  "authMethod": "moodle"
-}
-```
-
-### Performance Metrics
-
-Monitor these endpoints for system health:
-
-- `/api/health` - Overall system status
-- `/api/diagnostics` - Detailed performance metrics
-- Database connection pool statistics
-- Response time monitoring
-
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create a feature branch: `git checkout -b feature/your-feature`
-3. Commit changes: `git commit -am 'Add your feature'`
-4. Push to branch: `git push origin feature/your-feature`
-5. Submit a Pull Request
-
-### Development Setup
-
-```bash
-# Clone and setup
-git clone https://github.com/MarkVI2/ide-login.git
-cd ide-login
-npm install
-
-# Run in development mode
-npm run dev
-
-# Run tests
-npm test
-```
-
-## 📞 Support
-
-- **Documentation**: [GitHub Wiki](https://github.com/MarkVI2/ide-login/wiki)
-- **Issues**: [GitHub Issues](https://github.com/MarkVI2/ide-login/issues)
-- **Discussions**:
-  [GitHub Discussions](https://github.com/MarkVI2/ide-login/discussions)
-
-## 📄 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
-for details.
-
-## 🙏 Acknowledgments
-
-- Judge0 API for the online code execution platform
-- Moodle community for the learning management system
-- MariaDB/MySQL for reliable database support | `ADMIN_PASSWORD` | Admin account
-  password | `muadmin2025` | | `DEBUG_TOKEN` | Token for accessing debug
-  endpoints | `debug123` | | `NODE_ENV` | Environment mode | `development` |
+## Configuration
+
+### Environment Variables
+
+| Variable         | Description                         | Default                       |
+| ---------------- | ----------------------------------- | ----------------------------- |
+| `DB_HOST`        | Database hostname                   | `localhost`                   |
+| `DB_PORT`        | Database port                       | `3306`                        |
+| `DB_USER`        | Database username                   | `moodle_user`                 |
+| `DB_PASSWORD`    | Database password                   | `moodle_password`             |
+| `DB_NAME`        | Database name                       | `moodle`                      |
+| `DB_SOCKET`      | Socket path for local connections   | `/var/run/mysqld/mysqld.sock` |
+| `ADMIN_USERNAME` | Admin account username              | `admin`                       |
+| `ADMIN_PASSWORD` | Admin account password              | `muadmin2025`                 |
+| `DEBUG_TOKEN`    | Token for accessing debug endpoints | `debug123`                    |
+| `NODE_ENV`       | Environment mode                    | `development`                 |
 
 ### CORS Configuration
 
