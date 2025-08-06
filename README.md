@@ -89,17 +89,17 @@ Example password verification:
 
 ### Environment Variables
 
-| Variable         | Description                         | Default                       |
-| ---------------- | ----------------------------------- | ----------------------------- |
-| `DB_HOST`        | Database hostname                   | `localhost`                   |
-| `DB_PORT`        | Database port                       | `3306`                        |
-| `DB_USER`        | Database username                   | `moodle_user`                 |
-| `DB_PASSWORD`    | Database password                   | `moodle_password`             |
-| `DB_NAME`        | Database name                       | `moodle`                      |
-| `ADMIN_USERNAME` | Admin account username              | `admin`                       |
-| `ADMIN_PASSWORD` | Admin account password              | `muadmin2025`                 |
-| `DEBUG_TOKEN`    | Token for accessing debug endpoints | `debug123`                    |
-| `NODE_ENV`       | Environment mode                    | `development`                 |
+| Variable         | Description                         | Default           |
+| ---------------- | ----------------------------------- | ----------------- |
+| `DB_HOST`        | Database hostname                   | `localhost`       |
+| `DB_PORT`        | Database port                       | `3306`            |
+| `DB_USER`        | Database username                   | `moodle_user`     |
+| `DB_PASSWORD`    | Database password                   | `moodle_password` |
+| `DB_NAME`        | Database name                       | `moodle`          |
+| `ADMIN_USERNAME` | Admin account username              | `admin`           |
+| `ADMIN_PASSWORD` | Admin account password              | `muadmin2025`     |
+| `DEBUG_TOKEN`    | Token for accessing debug endpoints | `debug123`        |
+| `NODE_ENV`       | Environment mode                    | `development`     |
 
 ### CORS Configuration
 

@@ -170,12 +170,12 @@ async function initializeDatabase() {
     console.log("Initializing database connection...");
     dbManager = new DatabaseManager(dbConfig);
     await dbManager.initialize();
-    
+
     // Initialize Moodle authentication
     moodleAuth = new MoodleAuth(dbManager, {
-      tablePrefix: process.env.MOODLE_TABLE_PREFIX || "mdl_"
+      tablePrefix: process.env.MOODLE_TABLE_PREFIX || "mdl_",
     });
-    
+
     // Test Moodle connection
     const testResult = await moodleAuth.testMoodleConnection();
     if (testResult.success) {
@@ -186,11 +186,11 @@ async function initializeDatabase() {
     } else {
       console.warn("⚠ Moodle verification failed:", testResult.message);
     }
-    
+
     return true;
   } catch (error) {
     console.error("Database initialization failed:", error.message);
-    
+
     // Provide diagnosis
     const diagnosis = DatabaseManager.diagnoseConnectionError(error);
     console.log("\n🔍 Connection Diagnosis:");
@@ -199,7 +199,7 @@ async function initializeDatabase() {
     diagnosis.suggestions.forEach((suggestion, index) => {
       console.log(`  ${index + 1}. ${suggestion}`);
     });
-    
+
     return false;
   }
 }
@@ -207,7 +207,9 @@ async function initializeDatabase() {
 // Initialize database on startup
 initializeDatabase().then((success) => {
   if (!success) {
-    console.error("❌ Database initialization failed. Server will continue with limited functionality.");
+    console.error(
+      "❌ Database initialization failed. Server will continue with limited functionality."
+    );
   }
 });
 
@@ -293,11 +295,14 @@ app.post("/api/moodle-login", async (req, res) => {
 
     try {
       // Authenticate using MoodleAuth utility
-      const user = await moodleAuth.authenticateUser(sanitizedUsername, password);
-      
+      const user = await moodleAuth.authenticateUser(
+        sanitizedUsername,
+        password
+      );
+
       // Update last login time
       await moodleAuth.updateLastLogin(user.id);
-      
+
       console.log(
         `${timestamp} - Moodle login successful for user: ${user.username} (ID: ${user.id})`
       );
@@ -323,7 +328,9 @@ app.post("/api/moodle-login", async (req, res) => {
       return res.status(401).json({
         success: false,
         message: "Invalid username or password",
-        error: authError.message.includes("not found") ? "USER_NOT_FOUND" : "INVALID_CREDENTIALS",
+        error: authError.message.includes("not found")
+          ? "USER_NOT_FOUND"
+          : "INVALID_CREDENTIALS",
         timestamp,
       });
     }
